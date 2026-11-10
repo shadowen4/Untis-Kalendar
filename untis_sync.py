@@ -8,11 +8,6 @@ USERNAME = os.environ["UNTIS_USER"]
 PASSWORD = os.environ["UNTIS_PASSWORD"]
 WOCHEN = 4
 
-
-def zeit(dt):
-    return dt.strftime("%Y%m%dT%H%M%S")
-
-
 s = webuntis.Session(
     server=SERVER,
     username=USERNAME,
@@ -21,12 +16,39 @@ s = webuntis.Session(
     useragent="untis-bridge",
 ).login()
 
+auth = s._request(
+    "authenticate",
+    {"user": USERNAME, "password": PASSWORD, "client": "untis-bridge"},
+)
+person_id = auth["personId"]
+person_type = auth["personType"]
+
 heute = datetime.date.today()
 start = heute - datetime.timedelta(days=heute.weekday())
 ende = start + datetime.timedelta(weeks=WOCHEN)
 
-schueler = s.students().filter(surname="Güther", fore_name="Benedikt")[0]
-plan = s.timetable(student=schueler, start=start, end=ende)
+rows = s._request(
+    "getTimetable",
+    {
+        "options": {
+            "element": {"id": person_id, "type": person_type},
+            "startDate": int(start.strftime("%Y%m%d")),
+            "endDate": int(ende.strftime("%Y%m%d")),
+        }
+    },
+)
+
+faecher = {x.id: x.name for x in s.subjects()}
+raeume = {x.id: x.name for x in s.rooms()}
+
+
+def namen(liste, tabelle):
+    return ", ".join(
+        tabelle.get(x["id"], x.get("name", "")) for x in liste or []
+    )
+
+
+stamp = datetime.datetime.utcnow().strftime("%Y%m%dT%H%M%S")
 
 zeilen = [
     "BEGIN:VCALENDAR",
@@ -35,21 +57,23 @@ zeilen = [
     "X-WR-CALNAME:Schule",
 ]
 
-for st in plan:
-    fach = ", ".join(f.name for f in st.subjects) or "Unterricht"
-    raum = ", ".join(r.name for r in st.rooms)
-    if st.code == "cancelled":
-        fach = "ENTFÄLLT: " + fach
-    elif st.code == "irregular":
-        fach = "VERTRETUNG: " + fach
+for r in rows:
+    titel = namen(r.get("su"), faecher) or "Unterricht"
+    if r.get("code") == "cancelled":
+        titel = "ENTFÄLLT: " + titel
+    elif r.get("code") == "irregular":
+        titel = "VERTRETUNG: " + titel
+    tag = str(r["date"])
+    beginn = f"{tag}T{r['startTime']:04d}00"
+    schluss = f"{tag}T{r['endTime']:04d}00"
     zeilen += [
         "BEGIN:VEVENT",
-        f"UID:{st.id}-{zeit(st.start)}@untis-bridge",
-        f"DTSTAMP:{zeit(datetime.datetime.utcnow())}Z",
-        f"DTSTART:{zeit(st.start)}",
-        f"DTEND:{zeit(st.end)}",
-        f"SUMMARY:{fach}",
-        f"LOCATION:{raum}",
+        f"UID:{r['id']}-{beginn}@untis-bridge",
+        f"DTSTAMP:{stamp}Z",
+        f"DTSTART:{beginn}",
+        f"DTEND:{schluss}",
+        f"SUMMARY:{titel}",
+        f"LOCATION:{namen(r.get('ro'), raeume)}",
         "END:VEVENT",
     ]
 
@@ -59,4 +83,4 @@ with open("stundenplan.ics", "w", encoding="utf-8") as f:
     f.write("\r\n".join(zeilen))
 
 s.logout()
-print(f"Fertig: {len(plan)} Stunden geschrieben.")
+print(f"Fertig: {len(rows)} Stunden geschrieben.")
