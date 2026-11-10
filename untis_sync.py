@@ -25,8 +25,8 @@ heute = datetime.date.today()
 start = heute - datetime.timedelta(days=heute.weekday())
 ende = start + datetime.timedelta(weeks=WOCHEN)
 
-klasse = s.klassen()[0]
-plan = s.timetable(klasse=klasse, start=start, end=ende)
+   schueler = s.students().filter(surname="Güther", fore_name="Benedikt")[0]
+   plan = s.timetable(student=schueler, start=start, end=ende)
 
 zeilen = [
     "BEGIN:VCALENDAR",
